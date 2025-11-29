@@ -56,7 +56,14 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
             className="btn-primary"
             disabled={isLoading}
           >
-            {isLoading ? 'Connecting...' : 'Connect'}
+            {isLoading ? (
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
+                <div className="spinner-small"></div>
+                Connecting...
+              </span>
+            ) : (
+              'Connect'
+            )}
           </button>
         </form>
 

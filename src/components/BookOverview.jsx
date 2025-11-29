@@ -18,7 +18,10 @@ function BookOverview({ book, onSelectScene, onBack, isLoading, error }) {
         </div>
 
         {isLoading ? (
-          <div className="loading">Loading...</div>
+          <div className="loading">
+            <div className="spinner"></div>
+            <span>Loading book...</span>
+          </div>
         ) : book.chapters && book.chapters.length > 0 ? (
           <div className="chapters">
             {book.chapters.map((chapter, chapterIndex) => (
