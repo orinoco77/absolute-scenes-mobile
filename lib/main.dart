@@ -385,11 +385,25 @@ class _LoginScreenState extends State<LoginScreen> {
                         try {
                           final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
                           if (clipboardData != null && clipboardData.text != null) {
-                            _tokenController.text = clipboardData.text!;
+                            setState(() {
+                              _tokenController.text = clipboardData.text!;
+                              _tokenController.selection = TextSelection.fromPosition(
+                                TextPosition(offset: _tokenController.text.length),
+                              );
+                            });
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text('Pasted ${clipboardData.text!.length} characters'),
+                                  duration: const Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          } else {
                             if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('Token pasted successfully!'),
+                                  content: Text('Clipboard is empty'),
                                   duration: Duration(seconds: 2),
                                 ),
                               );
@@ -398,9 +412,9 @@ class _LoginScreenState extends State<LoginScreen> {
                         } catch (e) {
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Failed to paste. Please try typing or using long-press paste.'),
-                                duration: Duration(seconds: 3),
+                              SnackBar(
+                                content: Text('Paste failed: $e'),
+                                duration: const Duration(seconds: 3),
                               ),
                             );
                           }
