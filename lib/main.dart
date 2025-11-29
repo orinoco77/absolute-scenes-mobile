@@ -374,64 +374,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 40),
                 TextField(
                   controller: _tokenController,
-                  decoration: InputDecoration(
+                  decoration: const InputDecoration(
                     labelText: 'GitHub Personal Access Token',
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.vpn_key),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.content_paste),
-                      tooltip: 'Paste from clipboard',
-                      onPressed: () async {
-                        try {
-                          final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
-                          if (clipboardData != null && clipboardData.text != null) {
-                            setState(() {
-                              _tokenController.text = clipboardData.text!;
-                              _tokenController.selection = TextSelection.fromPosition(
-                                TextPosition(offset: _tokenController.text.length),
-                              );
-                            });
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('Pasted ${clipboardData.text!.length} characters'),
-                                  duration: const Duration(seconds: 2),
-                                ),
-                              );
-                            }
-                          } else {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Clipboard is empty'),
-                                  duration: Duration(seconds: 2),
-                                ),
-                              );
-                            }
-                          }
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text('Paste failed: $e'),
-                                duration: const Duration(seconds: 3),
-                              ),
-                            );
-                          }
-                        }
-                      },
-                    ),
+                    hintText: 'Paste your token here',
+                    border: OutlineInputBorder(),
                   ),
-                  enableInteractiveSelection: true,
-                  autocorrect: false,
-                  keyboardType: TextInputType.text,
-                  maxLines: 1,
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Tip: Tap the paste icon or long-press in the field to paste',
-                  style: TextStyle(fontSize: 12, color: Colors.grey),
-                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
                 if (_errorMessage != null)
