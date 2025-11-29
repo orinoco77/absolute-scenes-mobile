@@ -378,10 +378,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.vpn_key),
                   ),
-                  obscureText: true,
                   enableInteractiveSelection: true,
                   autocorrect: false,
-                  keyboardType: TextInputType.visiblePassword,
+                  keyboardType: TextInputType.text,
                 ),
                 const SizedBox(height: 20),
                 if (_errorMessage != null)
