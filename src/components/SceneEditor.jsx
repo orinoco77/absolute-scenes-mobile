@@ -39,7 +39,14 @@ function SceneEditor({ scene, chapter, book, onSave, onBack, isLoading, error })
           className="btn-save"
           disabled={isSaving || isLoading}
         >
-          {isSaving ? 'Saving...' : 'Save'}
+          {isSaving ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <div className="spinner-small"></div>
+              Saving...
+            </span>
+          ) : (
+            'Save'
+          )}
         </button>
       </header>
 

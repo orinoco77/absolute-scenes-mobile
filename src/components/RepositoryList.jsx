@@ -14,7 +14,10 @@ function RepositoryList({ repositories, onSelectRepo, onLogout, isLoading, error
         {error && <div className="error-message">{error}</div>}
 
         {isLoading ? (
-          <div className="loading">Loading your books...</div>
+          <div className="loading">
+            <div className="spinner"></div>
+            <span>Loading your books...</span>
+          </div>
         ) : repositories.length === 0 ? (
           <div className="empty-state">
             <p>No books found in your GitHub repositories</p>
