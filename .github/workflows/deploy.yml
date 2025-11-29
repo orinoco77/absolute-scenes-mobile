@@ -22,23 +22,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          flutter-version: '3.24.0'
-          channel: 'stable'
-          cache: true
+          node-version: '20'
+          cache: 'npm'
 
       - name: Install dependencies
-        run: flutter pub get
+        run: npm ci
 
-      - name: Build web
-        run: flutter build web --release --base-href /absolute-scenes-mobile/
+      - name: Build
+        run: npm run build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'build/web'
+          path: 'dist'
 
   deploy:
     environment:
