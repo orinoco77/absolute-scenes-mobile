@@ -192,27 +192,74 @@ class GitHubService {
 
     const fileData = await response.json();
 
-    // Decode base64 content
-    const base64Content = fileData.content.replace(/\s/g, '');
-    const binaryString = atob(base64Content);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+    // Check if content exists - if not, file might be too large for inline content
+    let rawContent;
+
+    if (!fileData.content) {
+      // Use Git Data API to get blob content for large files
+      const blobResponse = await fetch(
+        `https://api.github.com/repos/${repoFullName}/git/blobs/${fileData.sha}`,
+        {
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            Accept: 'application/vnd.github.v3+json',
+            'User-Agent': 'AbsoluteScenes-Mobile'
+          }
+        }
+      );
+
+      if (!blobResponse.ok) {
+        throw new Error(`Failed to download large file: ${blobResponse.status}`);
+      }
+
+      const blobData = await blobResponse.json();
+
+      if (!blobData.content) {
+        throw new Error('Git API returned no content');
+      }
+
+      // Decode the base64 content from Git API
+      const base64Content = blobData.content.replace(/\s/g, '');
+      const binaryString = atob(base64Content);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      rawContent = new TextDecoder('utf-8').decode(bytes);
+    } else {
+      // Decode base64 content with proper UTF-8 handling
+      const base64Content = fileData.content.replace(/\s/g, '');
+
+      try {
+        const binaryString = atob(base64Content);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        rawContent = new TextDecoder('utf-8').decode(bytes);
+      } catch (decodeError) {
+        console.error('Base64 decode error:', decodeError);
+        throw new Error('Failed to decode file content from GitHub');
+      }
     }
-    const content = new TextDecoder('utf-8').decode(bytes);
 
     // Normalize line endings
-    const normalizedContent = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const normalizedContent = rawContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
     try {
       const bookData = JSON.parse(normalizedContent);
+
+      // Validate that this looks like a book file
+      if (!bookData || typeof bookData !== 'object') {
+        throw new Error('Downloaded content is not a valid object');
+      }
 
       // Cache the SHA for future saves
       this.fileShaCache.set(`${repoFullName}/${fileName}`, fileData.sha);
 
       return bookData;
     } catch (error) {
-      throw new Error('Downloaded file is not a valid book format');
+      throw new Error(`Downloaded file is not a valid book format: ${error.message}`);
     }
   }
 
