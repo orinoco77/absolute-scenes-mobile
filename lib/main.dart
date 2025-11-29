@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'services/github_service.dart';
 import 'models/book.dart';
@@ -373,14 +374,50 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 40),
                 TextField(
                   controller: _tokenController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'GitHub Personal Access Token',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.vpn_key),
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.vpn_key),
+                    suffixIcon: IconButton(
+                      icon: const Icon(Icons.content_paste),
+                      tooltip: 'Paste from clipboard',
+                      onPressed: () async {
+                        try {
+                          final clipboardData = await Clipboard.getData(Clipboard.kTextPlain);
+                          if (clipboardData != null && clipboardData.text != null) {
+                            _tokenController.text = clipboardData.text!;
+                            if (mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Token pasted successfully!'),
+                                  duration: Duration(seconds: 2),
+                                ),
+                              );
+                            }
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Failed to paste. Please try typing or using long-press paste.'),
+                                duration: Duration(seconds: 3),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                    ),
                   ),
                   enableInteractiveSelection: true,
                   autocorrect: false,
                   keyboardType: TextInputType.text,
+                  maxLines: 1,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Tip: Tap the paste icon or long-press in the field to paste',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                  textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 20),
                 if (_errorMessage != null)
