@@ -3,7 +3,9 @@ import LoginScreen from './components/LoginScreen';
 import RepositoryList from './components/RepositoryList';
 import BookOverview from './components/BookOverview';
 import SceneEditor from './components/SceneEditor';
+import ConflictResolution from './components/ConflictResolution';
 import gitHubService from './utils/gitHubService';
+import { BrowserEnhancedGitHubService } from './utils/browserEnhancedGitHubService';
 import './App.css';
 
 function App() {
@@ -15,6 +17,11 @@ function App() {
   const [currentChapter, setCurrentChapter] = useState(null);
   const [currentRepo, setCurrentRepo] = useState(null);
   const [error, setError] = useState(null);
+  const [conflicts, setConflicts] = useState(null);
+  const [pendingSaveData, setPendingSaveData] = useState(null);
+
+  // Initialize enhanced GitHub service
+  const [enhancedGitHub] = useState(() => new BrowserEnhancedGitHubService());
 
   // Check auth status on mount
   useEffect(() => {
@@ -115,22 +122,100 @@ function App() {
         }
       }
 
-      // Save to GitHub
-      await gitHubService.saveBookToRepository(
-        currentRepo.fullName,
-        currentRepo.bookFileName,
+      // Update metadata
+      updatedBook.metadata = {
+        ...updatedBook.metadata,
+        modified: new Date().toISOString()
+      };
+
+      // Use enhanced GitHub service for conflict-aware save
+      const syncResult = await enhancedGitHub.safeSyncWithRepository(
+        currentRepo,
         updatedBook,
         `Mobile edit: Updated scene "${currentScene.title}"`
       );
 
-      setCurrentBook(updatedBook);
-      setCurrentScene(updatedScene);
+      if (syncResult.success) {
+        // Save successful - update local state with merged content
+        const finalBook = syncResult.mergedContent || updatedBook;
+        setCurrentBook(finalBook);
+
+        // Update current scene reference with the one from the saved book
+        const savedChapter = finalBook.chapters.find(c => c.id === currentChapter.id);
+        if (savedChapter) {
+          const savedScene = savedChapter.scenes.find(s => s.id === currentScene.id);
+          if (savedScene) {
+            setCurrentScene(savedScene);
+          }
+        }
+      } else if (syncResult.requiresResolution) {
+        // Conflicts detected - show resolution UI
+        setConflicts(syncResult.conflicts);
+        setPendingSaveData({
+          updatedBook,
+          updatedScene,
+          commitMessage: `Mobile edit: Updated scene "${currentScene.title}"`,
+          filename: syncResult.filename
+        });
+        setIsLoading(false);
+        return; // Don't throw error, let user resolve conflicts
+      } else {
+        // Save failed
+        throw new Error(syncResult.error || 'Failed to save to GitHub');
+      }
     } catch (err) {
       setError(err.message);
       throw err;
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleConflictResolution = async (resolutions) => {
+    if (!pendingSaveData || !conflicts) return;
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const syncResult = await enhancedGitHub.resolveConflictsAndSync(
+        currentRepo,
+        resolutions,
+        pendingSaveData.updatedBook,
+        pendingSaveData.commitMessage,
+        pendingSaveData.filename
+      );
+
+      if (syncResult.success) {
+        // Save successful after conflict resolution
+        const finalBook = syncResult.mergedContent || pendingSaveData.updatedBook;
+        setCurrentBook(finalBook);
+
+        // Update current scene reference
+        const savedChapter = finalBook.chapters.find(c => c.id === currentChapter.id);
+        if (savedChapter) {
+          const savedScene = savedChapter.scenes.find(s => s.id === currentScene.id);
+          if (savedScene) {
+            setCurrentScene(savedScene);
+          }
+        }
+
+        // Clear conflict state
+        setConflicts(null);
+        setPendingSaveData(null);
+      } else {
+        throw new Error(syncResult.error || 'Failed to save after conflict resolution');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCancelConflictResolution = () => {
+    setConflicts(null);
+    setPendingSaveData(null);
+    setError('Save cancelled - conflicts need to be resolved');
   };
 
   const goBackToOverview = () => {
@@ -148,6 +233,17 @@ function App() {
   // Render appropriate screen based on state
   if (!isAuthenticated) {
     return <LoginScreen onLogin={handleLogin} isLoading={isLoading} error={error} />;
+  }
+
+  // Show conflict resolution overlay if there are conflicts
+  if (conflicts && conflicts.length > 0) {
+    return (
+      <ConflictResolution
+        conflicts={conflicts}
+        onResolve={handleConflictResolution}
+        onCancel={handleCancelConflictResolution}
+      />
+    );
   }
 
   if (currentScene && currentBook) {
