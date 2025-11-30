@@ -93,6 +93,130 @@ function App() {
     setCurrentChapter(chapter);
   };
 
+  const addChapter = async () => {
+    if (!currentBook) return;
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const newChapter = {
+        id: Date.now().toString(),
+        title: `Chapter ${currentBook.chapters.length + 1}`,
+        scenes: [],
+        assignedAuthor: null
+      };
+
+      const updatedBook = {
+        ...currentBook,
+        chapters: [...currentBook.chapters, newChapter],
+        metadata: {
+          ...currentBook.metadata,
+          modified: new Date().toISOString()
+        }
+      };
+
+      // Save to GitHub with conflict handling
+      const syncResult = await enhancedGitHub.safeSyncWithRepository(
+        currentRepo,
+        updatedBook,
+        `Mobile: Added ${newChapter.title}`
+      );
+
+      if (syncResult.success) {
+        const finalBook = syncResult.mergedContent || updatedBook;
+        setCurrentBook(finalBook);
+      } else if (syncResult.requiresResolution) {
+        setConflicts(syncResult.conflicts);
+        setPendingSaveData({
+          updatedBook,
+          commitMessage: `Mobile: Added ${newChapter.title}`,
+          filename: syncResult.filename
+        });
+        setIsLoading(false);
+        return;
+      } else {
+        throw new Error(syncResult.error || 'Failed to save to GitHub');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const addScene = async (chapterId) => {
+    if (!currentBook) return;
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const chapter = currentBook.chapters.find(ch => ch.id === chapterId);
+      if (!chapter) {
+        throw new Error('Chapter not found');
+      }
+
+      const newScene = {
+        id: Date.now().toString(),
+        title: `Scene ${chapter.scenes.length + 1}`,
+        content: '',
+        notes: '',
+        created: new Date().toISOString(),
+        modified: new Date().toISOString(),
+        assignedAuthor: null
+      };
+
+      const updatedBook = {
+        ...currentBook,
+        chapters: currentBook.chapters.map(ch =>
+          ch.id === chapterId
+            ? { ...ch, scenes: [...ch.scenes, newScene] }
+            : ch
+        ),
+        metadata: {
+          ...currentBook.metadata,
+          modified: new Date().toISOString()
+        }
+      };
+
+      // Save to GitHub with conflict handling
+      const syncResult = await enhancedGitHub.safeSyncWithRepository(
+        currentRepo,
+        updatedBook,
+        `Mobile: Added ${newScene.title} to ${chapter.title}`
+      );
+
+      if (syncResult.success) {
+        const finalBook = syncResult.mergedContent || updatedBook;
+        setCurrentBook(finalBook);
+
+        // Navigate to the new scene
+        const savedChapter = finalBook.chapters.find(ch => ch.id === chapterId);
+        if (savedChapter) {
+          const savedScene = savedChapter.scenes.find(s => s.id === newScene.id);
+          if (savedScene) {
+            setCurrentScene(savedScene);
+            setCurrentChapter(savedChapter);
+          }
+        }
+      } else if (syncResult.requiresResolution) {
+        setConflicts(syncResult.conflicts);
+        setPendingSaveData({
+          updatedBook,
+          commitMessage: `Mobile: Added ${newScene.title} to ${chapter.title}`,
+          filename: syncResult.filename
+        });
+        setIsLoading(false);
+        return;
+      } else {
+        throw new Error(syncResult.error || 'Failed to save to GitHub');
+      }
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const saveScene = async (content) => {
     if (!currentScene || !currentBook || !currentChapter) return;
 
@@ -265,6 +389,8 @@ function App() {
       <BookOverview
         book={currentBook}
         onSelectScene={selectScene}
+        onAddChapter={addChapter}
+        onAddScene={addScene}
         onBack={goBackToBooks}
         isLoading={isLoading}
         error={error}

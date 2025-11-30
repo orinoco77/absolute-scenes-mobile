@@ -76,3 +76,58 @@
   font-style: italic;
   padding: 0.5rem 0;
 }
+
+.btn-add-scene {
+  width: 100%;
+  background: #4CAF50;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  margin-top: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-add-scene:hover:not(:disabled) {
+  background: #45a049;
+}
+
+.btn-add-scene:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.btn-add-chapter {
+  width: 100%;
+  background: #2196F3;
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-top: 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-add-chapter:hover:not(:disabled) {
+  background: #1976D2;
+}
+
+.btn-add-chapter:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 2rem;
+  color: #999;
+}
+
+.empty-state p {
+  margin-bottom: 1rem;
+}

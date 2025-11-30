@@ -1,6 +1,6 @@
 import './BookOverview.css';
 
-function BookOverview({ book, onSelectScene, onBack, isLoading, error }) {
+function BookOverview({ book, onSelectScene, onAddChapter, onAddScene, onBack, isLoading, error }) {
   return (
     <div className="book-overview">
       <header className="app-header">
@@ -48,12 +48,33 @@ function BookOverview({ book, onSelectScene, onBack, isLoading, error }) {
                 ) : (
                   <p className="empty-chapter">No scenes in this chapter</p>
                 )}
+                <button
+                  onClick={() => onAddScene(chapter.id)}
+                  className="btn-add-scene"
+                  disabled={isLoading}
+                >
+                  + Add Scene
+                </button>
               </div>
             ))}
+            <button
+              onClick={onAddChapter}
+              className="btn-add-chapter"
+              disabled={isLoading}
+            >
+              + Add Chapter
+            </button>
           </div>
         ) : (
           <div className="empty-state">
             <p>This book has no chapters yet</p>
+            <button
+              onClick={onAddChapter}
+              className="btn-add-chapter"
+              disabled={isLoading}
+            >
+              + Add Chapter
+            </button>
           </div>
         )}
       </div>
