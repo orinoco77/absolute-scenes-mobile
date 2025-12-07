@@ -1,0 +1,18 @@
+{
+  "name": "AbsoluteScenes Mobile",
+  "short_name": "AbsoluteScenes",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "description": "Mobile companion for AbsoluteScenes book writing app",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

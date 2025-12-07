@@ -39,7 +39,7 @@ function BookOverview({ book, onSelectScene, onAddChapter, onAddScene, onBack, i
                         >
                           <span className="scene-title">{scene.title}</span>
                           <span className="scene-length">
-                            {scene.content.length || 0} chars
+                            {scene.content.split(/\s+/).filter(w => w.length > 0).length} words
                           </span>
                         </button>
                       </li>
