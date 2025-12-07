@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import './LoginScreen.css';
 
 function LoginScreen({ onLogin, isLoading, error: propError }) {
@@ -30,24 +30,29 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
     window.open(url, '_blank');
   };
 
-  const handleScanSuccess = async (decodedText) => {
+  const handleScanSuccess = async (decodedText, qrScanner) => {
+    console.log('QR Code scanned:', decodedText);
     try {
       const qrData = JSON.parse(decodedText);
+      console.log('Parsed QR data:', qrData);
+
       if (qrData.type === 'absolute-scenes-github-token' && qrData.token) {
         // Stop scanner
-        if (scanner) {
-          await scanner.clear();
+        if (qrScanner) {
+          await qrScanner.stop();
         }
         setShowScanner(false);
+        setScanner(null);
 
         // Automatically log in with the scanned token
         await onLogin(qrData.token);
         setError(null);
       } else {
+        console.error('Invalid QR data structure:', qrData);
         setError('Invalid QR code. Please scan a valid Absolute Scenes token QR code.');
       }
     } catch (err) {
-      console.error('Failed to parse QR code:', err);
+      console.error('Failed to parse QR code:', err, 'Raw text:', decodedText);
       setError('Invalid QR code format. Please try again.');
     }
   };
@@ -59,7 +64,11 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
 
   const handleStopScanning = async () => {
     if (scanner) {
-      await scanner.clear();
+      try {
+        await scanner.stop();
+      } catch (err) {
+        console.error('Error stopping scanner:', err);
+      }
       setScanner(null);
     }
     setShowScanner(false);
@@ -67,29 +76,78 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
 
   useEffect(() => {
     let qrScanner = null;
+    let isCleaningUp = false;
 
-    if (showScanner) {
-      qrScanner = new Html5QrcodeScanner(
-        'qr-reader',
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1.0
-        },
-        false
-      );
+    const startScanner = async () => {
+      if (showScanner && !qrScanner) {
+        try {
+          console.log('Initializing QR scanner...');
+          qrScanner = new Html5Qrcode('qr-reader');
 
-      qrScanner.render(handleScanSuccess, (errorMessage) => {
-        // Ignore scan errors (they happen continuously while scanning)
-        console.debug('QR scan error:', errorMessage);
-      });
+          // Get available cameras
+          const devices = await Html5Qrcode.getCameras();
+          console.log('Available cameras:', devices);
 
-      setScanner(qrScanner);
-    }
+          if (devices && devices.length > 0) {
+            // Try to find back/rear camera, otherwise use first camera
+            let selectedCamera = devices[0];
+
+            // Look for back/rear/environment camera
+            const backCamera = devices.find(device =>
+              device.label.toLowerCase().includes('back') ||
+              device.label.toLowerCase().includes('rear') ||
+              device.label.toLowerCase().includes('environment')
+            );
+
+            if (backCamera) {
+              selectedCamera = backCamera;
+              console.log('Using back camera:', selectedCamera.label);
+            } else {
+              console.log('Using first available camera:', selectedCamera.label);
+            }
+
+            // Start scanning with the selected camera
+            await qrScanner.start(
+              selectedCamera.id,
+              {
+                fps: 20,
+                qrbox: { width: 250, height: 250 },
+                aspectRatio: 1.0
+              },
+              (decodedText) => {
+                if (!isCleaningUp) {
+                  console.log('QR code detected!');
+                  handleScanSuccess(decodedText, qrScanner);
+                }
+              },
+              (errorMessage) => {
+                // Ignore continuous scanning errors
+                if (!errorMessage.includes('NotFoundException')) {
+                  console.debug('QR scan error:', errorMessage);
+                }
+              }
+            );
+
+            setScanner(qrScanner);
+          } else {
+            setError('No cameras found. Please check camera permissions.');
+            setShowScanner(false);
+          }
+        } catch (err) {
+          console.error('Failed to start scanner:', err);
+          setError('Failed to access camera. Please check permissions.');
+          setShowScanner(false);
+        }
+      }
+    };
+
+    startScanner();
 
     return () => {
+      isCleaningUp = true;
       if (qrScanner) {
-        qrScanner.clear().catch(console.error);
+        console.log('Cleaning up QR scanner...');
+        qrScanner.stop().catch(console.error);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,14 +210,17 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
           </>
         ) : (
           <div className="qr-scanner-container">
-            <div id="qr-reader" style={{ width: '100%' }}></div>
+            <p style={{ marginBottom: '1rem', color: '#666', fontSize: '14px' }}>
+              Point your camera at the QR code on your desktop
+            </p>
+            <div id="qr-reader" style={{ width: '100%', maxWidth: '500px', margin: '0 auto' }}></div>
             {error && <div className="error-message" style={{ marginTop: '1rem' }}>{error}</div>}
             <button
               onClick={handleStopScanning}
               className="btn-secondary"
               style={{ marginTop: '1rem', width: '100%' }}
             >
-              Cancel Scanning
+              Cancel
             </button>
           </div>
         )}
