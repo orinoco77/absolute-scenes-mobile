@@ -64,8 +64,7 @@ function SceneEditor({ scene, chapter, book, onSave, onBack, isLoading, error })
 
         <div className="editor-footer">
           <span className="word-count">
-            {content.split(/\s+/).filter(w => w.length > 0).length} words •{' '}
-            {content.length} characters
+            {content.split(/\s+/).filter(w => w.length > 0).length} words
           </span>
         </div>
       </div>
