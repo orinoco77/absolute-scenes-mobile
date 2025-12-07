@@ -7,6 +7,7 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
   const [error, setError] = useState(propError);
   const [showInstructions, setShowInstructions] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const scannerRef = useRef(null);
   const isProcessingRef = useRef(false);
 
@@ -45,43 +46,37 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
   const handleScanSuccess = async (decodedText) => {
     // Prevent multiple simultaneous scans
     if (isProcessingRef.current) {
-      console.log('Already processing a scan, ignoring...');
       return;
     }
 
     isProcessingRef.current = true;
-    console.log('QR Code scanned:', decodedText);
 
     try {
       const qrData = JSON.parse(decodedText);
-      console.log('Parsed QR data:', qrData);
 
       if (qrData.type === 'absolute-scenes-github-token' && qrData.token) {
-        console.log('Valid token found, stopping scanner...');
-
-        // Stop scanner first
+        // Stop scanner and show loading state
         await stopScanner();
-        setShowScanner(false);
+        setIsLoggingIn(true);
+        setError(null);
 
-        console.log('Logging in with scanned token...');
         // Automatically log in with the scanned token
         try {
           await onLogin(qrData.token);
-          setError(null);
-          console.log('Login successful!');
+          // Don't set isLoggingIn to false - let the parent component handle the transition
+          // The LoginScreen will unmount when login succeeds
         } catch (loginErr) {
-          console.error('Login failed:', loginErr);
           setError(`Login failed: ${loginErr.message}`);
+          setIsLoggingIn(false);
+          setShowScanner(false);
           isProcessingRef.current = false;
         }
       } else {
-        console.error('Invalid QR data structure:', qrData);
         setError('Invalid QR code. Please scan a valid Absolute Scenes token QR code.');
         isProcessingRef.current = false;
       }
     } catch (err) {
-      console.error('Failed to parse QR code:', err, 'Raw text:', decodedText);
-      setError(`Invalid QR code format: ${err.message}`);
+      setError('Invalid QR code format. Please try again.');
       isProcessingRef.current = false;
     }
   };
@@ -183,7 +178,14 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
         <h1>AbsoluteScenes Mobile</h1>
         <p className="subtitle">Connect to GitHub to access your books</p>
 
-        {!showScanner ? (
+        {isLoggingIn ? (
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <div className="spinner-small" style={{ margin: '0 auto 1rem' }}></div>
+            <p style={{ color: '#666', fontSize: '16px' }}>
+              Logging in with scanned token...
+            </p>
+          </div>
+        ) : !showScanner ? (
           <>
             <form onSubmit={handleSubmit} className="login-form">
               <div className="input-group">
@@ -248,7 +250,7 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
           </div>
         )}
 
-        {!showScanner && (
+        {!showScanner && !isLoggingIn && (
           <>
             <button
               onClick={() => setShowInstructions(!showInstructions)}
