@@ -66,9 +66,15 @@ export class BrowserEnhancedGitHubService {
         filename
       );
 
-      if (bookData.github?.lastSyncCommitSha &&
+      const localSha = bookData.github?.lastSyncCommitSha;
+      console.log('📊 SHA Comparison:');
+      console.log('  Local SHA:', localSha || 'NONE');
+      console.log('  Remote SHA:', remoteCommitSha || 'NONE');
+      console.log('  Match:', localSha && remoteCommitSha && localSha === remoteCommitSha);
+
+      if (localSha &&
           remoteCommitSha &&
-          bookData.github.lastSyncCommitSha === remoteCommitSha) {
+          localSha === remoteCommitSha) {
         console.log('✓ Remote unchanged (SHA match) - pushing local changes only');
 
         // Remote hasn't changed, just push our local changes
@@ -94,6 +100,9 @@ export class BrowserEnhancedGitHubService {
           ...updatedBookData.github,
           lastSyncCommitSha: pushResult.commitSha
         };
+
+        console.log('  New SHA after push:', pushResult.commitSha || 'NONE');
+        console.log('  Stored in mergedContent:', updatedBookData.github?.lastSyncCommitSha || 'NONE');
 
         return {
           success: true,
