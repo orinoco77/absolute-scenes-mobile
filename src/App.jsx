@@ -77,7 +77,23 @@ function App() {
         repo.fullName,
         repo.bookFileName
       );
-      setCurrentBook(bookData);
+
+      // Fetch the current commit SHA and add it to the book for proper sync tracking
+      const currentSha = await gitHubService.getLatestCommitSha(
+        { full_name: repo.fullName },
+        repo.bookFileName
+      );
+
+      // Add the SHA to the book's github metadata
+      const bookWithSha = {
+        ...bookData,
+        github: {
+          ...bookData.github,
+          lastSyncCommitSha: currentSha
+        }
+      };
+
+      setCurrentBook(bookWithSha);
       setCurrentRepo(repo);
       setCurrentScene(null);
       setCurrentChapter(null);
