@@ -58,6 +58,53 @@ export class BrowserEnhancedGitHubService {
         };
       }
 
+      // OPTIMIZATION: Compare commit SHAs first
+      // If our stored SHA matches GitHub's current SHA, remote hasn't changed
+      // No need to fetch base or merge - just push our local changes
+      const remoteCommitSha = await this.gitHubService.getLatestCommitSha(
+        repository,
+        filename
+      );
+
+      if (bookData.github?.lastSyncCommitSha &&
+          remoteCommitSha &&
+          bookData.github.lastSyncCommitSha === remoteCommitSha) {
+        console.log('✓ Remote unchanged (SHA match) - pushing local changes only');
+
+        // Remote hasn't changed, just push our local changes
+        await this.collaborationService.createCommit(bookData, commitMessage);
+        const pushResult = await this.pushToRepository(
+          repository,
+          bookData,
+          commitMessage,
+          filename
+        );
+
+        if (!pushResult.success) {
+          return {
+            success: false,
+            conflicts: [],
+            error: pushResult.error
+          };
+        }
+
+        // Update the stored SHA with the new one from this push
+        const updatedBookData = JSON.parse(JSON.stringify(bookData));
+        updatedBookData.github = {
+          ...updatedBookData.github,
+          lastSyncCommitSha: pushResult.commitSha
+        };
+
+        return {
+          success: true,
+          conflicts: [],
+          mergedContent: updatedBookData,
+          wasPushed: true
+        };
+      }
+
+      console.log('⚠ Remote changed (SHA mismatch or no SHA) - performing 3-way merge');
+
       // Get the base content (last synced version) for proper 3-way merge
       // Try to fetch from GitHub using commit SHA for more reliable base tracking
       let baseContent = null;
@@ -77,10 +124,29 @@ export class BrowserEnhancedGitHubService {
         baseContent = bookData.github.lastSyncedContent;
       }
 
-      // If still no base, use remote as the base (first sync scenario)
+      // If still no base, this is first sync - use empty object as base
+      // This makes the 3-way merge treat both local and remote as new changes
+      // and properly merge them instead of favoring one over the other
       if (!baseContent) {
-        console.log('No base content found, using remote as base (first sync)');
-        baseContent = remoteBookData;
+        console.warn('No base content found - treating as first sync');
+        console.warn('Will attempt to merge local and remote changes');
+        // Use an empty book structure as base so both local and remote changes are respected
+        baseContent = {
+          title: '',
+          author: '',
+          scenes: [],
+          characters: [],
+          chapters: [],
+          parts: [],
+          locations: [],
+          backgroundFolders: [],
+          frontMatter: [],
+          characterDetectionBlacklist: [],
+          template: {},
+          github: {},
+          metadata: {},
+          collaboration: {}
+        };
       }
 
       // Strip sync metadata from all versions before comparison

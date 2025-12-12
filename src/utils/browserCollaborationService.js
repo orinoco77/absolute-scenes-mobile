@@ -13,7 +13,9 @@ export class BrowserCollaborationService {
       'createdAt',
       'lastModified',
       'updatedAt',
-      'timestamp'
+      'timestamp',
+      'modified',   // Used throughout the app for item modification times
+      'created'     // Used throughout the app for item creation times
     ]);
   }
 
