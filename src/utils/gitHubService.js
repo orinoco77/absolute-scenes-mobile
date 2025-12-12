@@ -348,6 +348,137 @@ class GitHubService {
 
     return result;
   }
+
+  /**
+   * Get the latest commit SHA for a file
+   * Used to track the current remote state
+   */
+  async getLatestCommitSha(repo, fileName) {
+    if (!this.token) {
+      throw new Error('Not authenticated');
+    }
+
+    try {
+      // Get commits for this specific file
+      const response = await fetch(
+        `https://api.github.com/repos/${repo.full_name}/commits?path=${fileName}&page=1&per_page=1`,
+        {
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            Accept: 'application/vnd.github.v3+json',
+            'User-Agent': 'AbsoluteScenes-BookWriter'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          console.warn(`No commits found for ${fileName}`);
+          return null;
+        }
+        throw new Error(`Failed to get commits: ${response.status}`);
+      }
+
+      const commits = await response.json();
+      if (commits.length > 0) {
+        return commits[0].sha;
+      }
+
+      return null;
+    } catch (error) {
+      console.error(`Error getting latest commit SHA:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Get file content at a specific commit SHA
+   * Used to fetch the base version for 3-way merge
+   */
+  async getFileAtCommit(repo, fileName, commitSha) {
+    if (!this.token) {
+      throw new Error('Not authenticated');
+    }
+
+    if (!commitSha) {
+      throw new Error('Commit SHA is required');
+    }
+
+    try {
+      // Use GitHub API to get file at specific ref (commit SHA)
+      const response = await fetch(
+        `https://api.github.com/repos/${repo.full_name}/contents/${fileName}?ref=${commitSha}`,
+        {
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+            Accept: 'application/vnd.github.v3+json',
+            'User-Agent': 'AbsoluteScenes-BookWriter'
+          },
+          cache: 'no-store'
+        }
+      );
+
+      if (!response.ok) {
+        // If the commit doesn't exist or file wasn't in that commit, return null
+        // This allows fallback to other base-fetching strategies
+        if (response.status === 404) {
+          console.warn(`File not found at commit ${commitSha}, falling back to alternative base`);
+          return null;
+        }
+        throw new Error(`Failed to fetch file at commit: ${response.status}`);
+      }
+
+      const fileData = await response.json();
+
+      // Decode base64 content
+      let rawContent;
+      if (!fileData.content) {
+        // File too large, use Git Data API
+        const blobResponse = await fetch(
+          `https://api.github.com/repos/${repo.full_name}/git/blobs/${fileData.sha}`,
+          {
+            headers: {
+              Authorization: `Bearer ${this.token}`,
+              Accept: 'application/vnd.github.v3+json',
+              'User-Agent': 'AbsoluteScenes-BookWriter'
+            }
+          }
+        );
+
+        if (!blobResponse.ok) {
+          throw new Error(`Failed to fetch blob: ${blobResponse.status}`);
+        }
+
+        const blobData = await blobResponse.json();
+        const base64Content = blobData.content.replace(/\s/g, '');
+        const binaryString = atob(base64Content);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        rawContent = new TextDecoder('utf-8').decode(bytes);
+      } else {
+        const base64Content = fileData.content.replace(/\s/g, '');
+        const binaryString = atob(base64Content);
+        const bytes = new Uint8Array(binaryString.length);
+        for (let i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        rawContent = new TextDecoder('utf-8').decode(bytes);
+      }
+
+      // Normalize line endings
+      const content = rawContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+      // Parse and return book data
+      const bookData = JSON.parse(content);
+      return bookData;
+    } catch (error) {
+      console.error(`Error fetching file at commit ${commitSha}:`, error);
+      // Return null to allow fallback strategies
+      return null;
+    }
+  }
 }
 
 // Export singleton instance

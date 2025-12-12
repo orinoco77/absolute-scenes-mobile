@@ -6,6 +6,15 @@
 export class BrowserCollaborationService {
   constructor() {
     this.conflicts = [];
+    // Metadata fields that should not trigger conflicts
+    // These fields change automatically and the latest value should always win
+    this.metadataFields = new Set([
+      'modifiedAt',
+      'createdAt',
+      'lastModified',
+      'updatedAt',
+      'timestamp'
+    ]);
   }
 
   /**
@@ -466,6 +475,12 @@ export class BrowserCollaborationService {
     ]);
 
     for (const key of allKeys) {
+      // For metadata fields, always use remote (latest) value
+      if (this.metadataFields.has(key)) {
+        merged[fieldName][key] = remoteObj[key];
+        continue;
+      }
+
       const baseValue = baseObj[key];
       const localValue = localObj[key];
       const remoteValue = remoteObj[key];
@@ -611,6 +626,11 @@ export class BrowserCollaborationService {
     ]);
 
     for (const key of allKeys) {
+      // Skip metadata fields - they should not trigger conflicts
+      if (this.metadataFields.has(key)) {
+        continue;
+      }
+
       const baseValue = baseObj[key];
       const localValue = localObj[key];
       const remoteValue = remoteObj[key];
@@ -698,6 +718,12 @@ export class BrowserCollaborationService {
     ]);
 
     for (const key of allKeys) {
+      // For metadata fields, always use remote (latest) value
+      if (this.metadataFields.has(key)) {
+        merged[key] = remoteItem[key];
+        continue;
+      }
+
       const baseValue = baseItem[key];
       const localValue = localItem[key];
       const remoteValue = remoteItem[key];
@@ -780,6 +806,12 @@ export class BrowserCollaborationService {
             ...localItem,
             ...remoteItem
           })) {
+            // For metadata fields, always use remote (latest) value
+            if (this.metadataFields.has(key)) {
+              mergedItem[key] = remoteItem?.[key];
+              continue;
+            }
+
             const baseVal = baseItem?.[key];
             const localVal = localItem?.[key];
             const remoteVal = remoteItem?.[key];
@@ -822,6 +854,12 @@ export class BrowserCollaborationService {
     ]);
 
     for (const key of allKeys) {
+      // For metadata fields, always use remote (latest) value
+      if (this.metadataFields.has(key)) {
+        merged[key] = remoteObj[key];
+        continue;
+      }
+
       const baseValue = baseObj[key];
       const localValue = localObj[key];
       const remoteValue = remoteObj[key];
