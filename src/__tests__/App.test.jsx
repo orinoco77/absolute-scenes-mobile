@@ -77,6 +77,29 @@ test('after selecting a repo with no persisted book, a first sync pulls its cont
   expect(syncBook).toHaveBeenCalled();
 });
 
+test('shows a loading state, not an empty-book message, while the first sync for a repo is still pending', async () => {
+  gitHubService.storeAuth('ghp_abc123', { login: 'alice' });
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => [{ full_name: 'alice/novel', name: 'novel', description: null, default_branch: 'main' }]
+  });
+
+  let resolveSync;
+  syncBook.mockReturnValue(new Promise(resolve => { resolveSync = resolve; }));
+
+  render(<App />);
+  await userEvent.click(await screen.findByText('novel'));
+
+  // While the first sync is still in flight, the stub book has zero
+  // chapters -- this must read as "loading", never as "your book has no
+  // chapters", which looks like the book's content has disappeared.
+  await screen.findByText(/loading/i);
+  expect(screen.queryByText(/no chapters yet/i)).not.toBeInTheDocument();
+
+  resolveSync({ bookData: pulledBook(), conflicts: [] });
+  await waitFor(() => expect(screen.getByText('Existing Repo Book')).toBeInTheDocument());
+});
+
 test('editing a scene persists it locally immediately and fires a background sync', async () => {
   gitHubService.storeAuth('ghp_abc123', { login: 'alice' });
   global.fetch = vi.fn().mockResolvedValue({
