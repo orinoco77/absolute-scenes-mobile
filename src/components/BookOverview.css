@@ -131,3 +131,13 @@
 .empty-state p {
   margin-bottom: 1rem;
 }
+
+.sync-status {
+  font-size: 13px;
+  color: #888;
+  margin-top: 0.25rem;
+}
+
+.conflict-badge {
+  color: #b45309;
+}
