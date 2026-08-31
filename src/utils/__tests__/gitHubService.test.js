@@ -73,6 +73,26 @@ test('getUserRepositoriesWithBooks keeps only repos with a legacy or new-layout 
   ]);
 });
 
+test('a repo whose layout check fails is skipped, not fatal to the whole listing', async () => {
+  await gitHubService.storeAuth('ghp_abc123', { login: 'alice' });
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => [
+      { full_name: 'alice/broken-repo', name: 'broken-repo', description: null, default_branch: 'main' },
+      { full_name: 'alice/novel', name: 'novel', description: 'A novel', default_branch: 'main' },
+    ],
+  });
+  detectRepoLayout
+    .mockRejectedValueOnce(new Error('rate limited'))
+    .mockResolvedValueOnce('new');
+
+  const repos = await gitHubService.getUserRepositoriesWithBooks();
+
+  expect(repos).toEqual([
+    { fullName: 'alice/novel', name: 'novel', description: 'A novel', defaultBranch: 'main' },
+  ]);
+});
+
 test('getUserRepositoriesWithBooks throws when not authenticated', async () => {
   await expect(gitHubService.getUserRepositoriesWithBooks()).rejects.toThrow('Not authenticated');
 });

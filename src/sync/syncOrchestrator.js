@@ -4,20 +4,24 @@ import { createSyncCache } from './syncCache.js';
 
 export { reconcilePostSyncState };
 
-let inFlight = null;
+const inFlightByRepo = new Map();
 
 export function __resetInFlightGuardForTests() {
-  inFlight = null;
+  inFlightByRepo.clear();
 }
 
 export async function syncBook({ book, gitHubService }) {
   if (!gitHubService.isAuthenticated()) return null;
-  if (inFlight) return inFlight;
 
-  inFlight = runSync({ book, gitHubService }).finally(() => {
-    inFlight = null;
+  const repoKey = book.github.repository.fullName;
+  const existing = inFlightByRepo.get(repoKey);
+  if (existing) return existing;
+
+  const promise = runSync({ book, gitHubService }).finally(() => {
+    inFlightByRepo.delete(repoKey);
   });
-  return inFlight;
+  inFlightByRepo.set(repoKey, promise);
+  return promise;
 }
 
 async function runSync({ book, gitHubService }) {

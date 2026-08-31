@@ -116,3 +116,26 @@ test('a conflict reported by sync shows up as a scene badge', async () => {
 
   await waitFor(() => expect(screen.getByText('Scene One').closest('button')).toHaveTextContent('⚠'));
 });
+
+test('opening a scene that has since changed remotely shows the freshly synced content, not the stale pre-open snapshot', async () => {
+  gitHubService.storeAuth('ghp_abc123', { login: 'alice' });
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => [{ full_name: 'alice/novel', name: 'novel', description: null, default_branch: 'main' }]
+  });
+  syncBook.mockResolvedValueOnce({ bookData: pulledBook(), conflicts: [] });
+
+  render(<App />);
+  await userEvent.click(await screen.findByText('novel'));
+  await waitFor(() => expect(screen.getByText('Existing Repo Book')).toBeInTheDocument());
+
+  const updatedBook = {
+    ...pulledBook(),
+    chapters: [{ id: 'ch1', title: 'Chapter 1', scenes: [{ id: 'sc1', title: 'Scene One', content: 'synced while opening' }] }]
+  };
+  syncBook.mockResolvedValueOnce({ bookData: updatedBook, conflicts: [] });
+
+  await userEvent.click(screen.getByText('Scene One'));
+
+  expect(await screen.findByDisplayValue('synced while opening')).toBeInTheDocument();
+});

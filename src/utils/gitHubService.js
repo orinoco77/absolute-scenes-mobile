@@ -106,11 +106,17 @@ class GitHubService {
 
     for (const repo of repos) {
       const branch = repo.default_branch || 'main';
-      const layout = await detectRepoLayout({
-        repo: repo.full_name,
-        token: this.token,
-        branch
-      });
+      let layout;
+      try {
+        layout = await detectRepoLayout({
+          repo: repo.full_name,
+          token: this.token,
+          branch
+        });
+      } catch (error) {
+        console.warn(`Skipping ${repo.full_name}: failed to detect layout`, error);
+        continue;
+      }
 
       if (layout === 'legacy' || layout === 'new') {
         bookRepos.push({
