@@ -4,6 +4,54 @@
  */
 import { detectRepoLayout } from '@absolute-scenes/git-sync';
 
+// Runs `mapper` over `items` with at most `limit` in flight at once,
+// returning results in the same order as `items` regardless of which
+// finishes first. Each `detectRepoLayout` check is itself 3 sequential
+// GitHub API calls, and a repo list can have up to 100 entries -- a plain
+// sequential loop means up to 300 serialized round trips before the repo
+// list screen can render. A bounded pool gets most of the speed of full
+// concurrency without firing 100 requests at GitHub simultaneously.
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const current = nextIndex++;
+      results[current] = await mapper(items[current], current);
+    }
+  }
+
+  const workerCount = Math.min(limit, items.length);
+  await Promise.all(Array.from({ length: workerCount }, worker));
+  return results;
+}
+
+const REPO_LAYOUT_CHECK_CONCURRENCY = 5;
+const REPO_LAYOUT_CACHE_KEY = 'absolute-scenes-mobile:repoLayoutCache';
+
+// GitHub's own repo-list response already includes `pushed_at` for every
+// repo -- if it's unchanged since the last time we checked, nothing could
+// have changed at the tip of that repo's default branch, so the cached
+// layout classification is still correct and detectRepoLayout's 3 API
+// calls can be skipped entirely for that repo.
+function loadRepoLayoutCache() {
+  try {
+    return JSON.parse(localStorage.getItem(REPO_LAYOUT_CACHE_KEY)) ?? {};
+  } catch (error) {
+    console.warn('Failed to read repo layout cache:', error);
+    return {};
+  }
+}
+
+function saveRepoLayoutCache(cache) {
+  try {
+    localStorage.setItem(REPO_LAYOUT_CACHE_KEY, JSON.stringify(cache));
+  } catch (error) {
+    console.warn('Failed to persist repo layout cache:', error);
+  }
+}
+
 class GitHubService {
   constructor() {
     this.token = null;
@@ -102,33 +150,42 @@ class GitHubService {
     }
 
     const repos = await response.json();
-    const bookRepos = [];
+    const cache = loadRepoLayoutCache();
+    const nextCache = {};
 
-    for (const repo of repos) {
+    const checked = await mapWithConcurrency(repos, REPO_LAYOUT_CHECK_CONCURRENCY, async repo => {
       const branch = repo.default_branch || 'main';
+      const cached = cache[repo.full_name];
       let layout;
-      try {
-        layout = await detectRepoLayout({
-          repo: repo.full_name,
-          token: this.token,
-          branch
-        });
-      } catch (error) {
-        console.warn(`Skipping ${repo.full_name}: failed to detect layout`, error);
-        continue;
+
+      if (cached && cached.pushedAt === repo.pushed_at) {
+        layout = cached.layout;
+      } else {
+        try {
+          layout = await detectRepoLayout({
+            repo: repo.full_name,
+            token: this.token,
+            branch
+          });
+        } catch (error) {
+          console.warn(`Skipping ${repo.full_name}: failed to detect layout`, error);
+          return null;
+        }
       }
 
-      if (layout === 'legacy' || layout === 'new') {
-        bookRepos.push({
-          fullName: repo.full_name,
-          name: repo.name,
-          description: repo.description,
-          defaultBranch: branch
-        });
-      }
-    }
+      nextCache[repo.full_name] = { layout, pushedAt: repo.pushed_at };
 
-    return bookRepos;
+      if (layout !== 'legacy' && layout !== 'new') return null;
+      return {
+        fullName: repo.full_name,
+        name: repo.name,
+        description: repo.description,
+        defaultBranch: branch
+      };
+    });
+
+    saveRepoLayoutCache(nextCache);
+    return checked.filter(Boolean);
   }
 }
 
