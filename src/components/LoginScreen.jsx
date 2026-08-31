@@ -5,6 +5,8 @@ import './LoginScreen.css';
 function LoginScreen({ onLogin, isLoading, error: propError }) {
   const [error, setError] = useState(propError);
   const [showScanner, setShowScanner] = useState(false);
+  const [showManualEntry, setShowManualEntry] = useState(false);
+  const [manualToken, setManualToken] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const scannerRef = useRef(null);
   const isProcessingRef = useRef(false);
@@ -60,6 +62,7 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
 
   const handleStartScanning = () => {
     setShowScanner(true);
+    setShowManualEntry(false);
     setError(null);
     isProcessingRef.current = false;
   };
@@ -68,6 +71,28 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
     await stopScanner();
     setShowScanner(false);
     isProcessingRef.current = false;
+  };
+
+  const handleShowManualEntry = () => {
+    setShowManualEntry(true);
+    setError(null);
+  };
+
+  const handleManualSubmit = async (e) => {
+    e.preventDefault();
+    const token = manualToken.trim();
+    if (!token) return;
+
+    setIsLoggingIn(true);
+    setError(null);
+    try {
+      await onLogin(token);
+      // Don't set isLoggingIn to false -- let the parent handle the
+      // transition, same as the QR path. LoginScreen unmounts on success.
+    } catch (err) {
+      setError(`Login failed: ${err.message}`);
+      setIsLoggingIn(false);
+    }
   };
 
   useEffect(() => {
@@ -129,7 +154,7 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
           }
         } catch (err) {
           console.error('Failed to start scanner:', err);
-          setError(`Failed to access camera: ${err.message}`);
+          setError(`Failed to access camera: ${err.message || err}`);
           setShowScanner(false);
         }
       }
@@ -141,7 +166,18 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
       isCleaningUp = true;
       if (scannerRef.current) {
         console.log('Cleaning up QR scanner...');
-        scannerRef.current.stop().catch(console.error);
+        try {
+          // stop() throws synchronously (rather than rejecting) when the
+          // scanner was constructed but never successfully started -- e.g.
+          // camera access failed before qrScanner.start() was ever called.
+          // An uncaught synchronous throw here, during effect cleanup,
+          // crashes the whole render tree with no error boundary to catch
+          // it -- confirmed live (blank page) when camera access failed on
+          // an insecure (non-HTTPS, non-localhost) origin.
+          scannerRef.current.stop().catch(console.error);
+        } catch (err) {
+          console.error('Error stopping scanner:', err);
+        }
         scannerRef.current = null;
       }
     };
@@ -159,7 +195,7 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
           <div style={{ padding: '2rem', textAlign: 'center' }}>
             <div className="spinner-small" style={{ margin: '0 auto 1rem' }}></div>
             <p style={{ color: '#666', fontSize: '16px' }}>
-              Logging in with scanned token...
+              Connecting to GitHub...
             </p>
           </div>
         ) : !showScanner ? (
@@ -178,13 +214,45 @@ function LoginScreen({ onLogin, isLoading, error: propError }) {
               📱 Scan QR Code from Desktop
             </button>
 
+            {!showManualEntry ? (
+              <button
+                onClick={handleShowManualEntry}
+                className="btn-link"
+                style={{ width: '100%', textAlign: 'center' }}
+              >
+                Or paste a token manually
+              </button>
+            ) : (
+              <form onSubmit={handleManualSubmit}>
+                <div className="input-group" style={{ marginBottom: '0.75rem' }}>
+                  <input
+                    type="password"
+                    value={manualToken}
+                    onChange={(e) => setManualToken(e.target.value)}
+                    placeholder="ghp_..."
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ width: '100%' }}
+                  disabled={!manualToken.trim()}
+                >
+                  Connect
+                </button>
+              </form>
+            )}
+
             <div className="instructions" style={{ marginTop: '2rem' }}>
               <h3 style={{ fontSize: '16px', marginBottom: '0.75rem' }}>How it works:</h3>
               <ol style={{ fontSize: '14px', lineHeight: '1.6' }}>
                 <li>Open Absolute Scenes on your desktop</li>
                 <li>Connect to GitHub in Settings</li>
                 <li>Click "Share Token with Mobile App"</li>
-                <li>Scan the QR code with this app</li>
+                <li>Scan the QR code with this app, or copy the token and paste it above</li>
               </ol>
             </div>
           </div>
