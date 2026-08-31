@@ -21,7 +21,7 @@ function RepositoryList({ repositories, onSelectRepo, onLogout, isLoading, error
         ) : repositories.length === 0 ? (
           <div className="empty-state">
             <p>No books found in your GitHub repositories</p>
-            <p className="hint">Books must have a .book file in the repository root</p>
+            <p className="hint">Books must have a book.json (or a legacy .book file) in the repository root</p>
           </div>
         ) : (
           <ul className="repo-list">
@@ -37,7 +37,6 @@ function RepositoryList({ repositories, onSelectRepo, onLogout, isLoading, error
                     {repo.description && (
                       <p className="repo-description">{repo.description}</p>
                     )}
-                    <span className="repo-file">{repo.bookFileName}</span>
                   </div>
                 </button>
               </li>
