@@ -1,37 +1,73 @@
-import { useState, useEffect } from 'react';
+// src/App.jsx
+import { useState, useCallback, useRef } from 'react';
 import LoginScreen from './components/LoginScreen';
 import RepositoryList from './components/RepositoryList';
 import BookOverview from './components/BookOverview';
 import SceneEditor from './components/SceneEditor';
-import ConflictResolution from './components/ConflictResolution';
 import gitHubService from './utils/gitHubService';
-import { BrowserEnhancedGitHubService } from './utils/browserEnhancedGitHubService';
+import { syncBook, reconcilePostSyncState } from './sync/syncOrchestrator.js';
+import { loadPersistedBook, savePersistedBook } from './sync/bookStorage.js';
+import { useSyncTriggers } from './sync/useSyncTriggers.js';
 import './App.css';
 
+function formatSyncStatus(book) {
+  if (!navigator.onLine) return 'Offline — will sync when connection returns';
+  const lastSyncTime = book?.github?.lastSyncTime;
+  if (!lastSyncTime) return 'Not yet synced';
+  const minutesAgo = Math.round((Date.now() - new Date(lastSyncTime).getTime()) / 60000);
+  if (minutesAgo < 1) return 'Synced just now';
+  return `Synced ${minutesAgo}m ago`;
+}
+
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(gitHubService.isAuthenticated());
   const [isLoading, setIsLoading] = useState(false);
   const [repositories, setRepositories] = useState([]);
-  const [currentBook, setCurrentBook] = useState(null);
+  const [book, setBookState] = useState(null);
   const [currentScene, setCurrentScene] = useState(null);
   const [currentChapter, setCurrentChapter] = useState(null);
-  const [currentRepo, setCurrentRepo] = useState(null);
   const [error, setError] = useState(null);
-  const [conflicts, setConflicts] = useState(null);
-  const [pendingSaveData, setPendingSaveData] = useState(null);
+  const [conflictSceneIds, setConflictSceneIds] = useState([]);
 
-  // Initialize enhanced GitHub service
-  const [enhancedGitHub] = useState(() => new BrowserEnhancedGitHubService());
-
-  // Check auth status on mount
-  useEffect(() => {
-    setIsAuthenticated(gitHubService.isAuthenticated());
-    if (gitHubService.isAuthenticated()) {
-      loadRepositories();
-    }
+  const bookRef = useRef(null);
+  const setBook = useCallback(newBook => {
+    bookRef.current = newBook;
+    setBookState(newBook);
   }, []);
 
-  const handleLogin = async (token) => {
+  const performSync = useCallback(async () => {
+    const snapshotBook = bookRef.current;
+    if (!snapshotBook?.github?.repository) return null;
+
+    try {
+      const result = await syncBook({ book: snapshotBook, gitHubService });
+      if (!result) return null;
+
+      const { bookData, conflicts } = reconcilePostSyncState(
+        snapshotBook,
+        bookRef.current,
+        result.bookData
+      );
+      setBook(bookData);
+      await savePersistedBook(bookData.github.repository.fullName, bookData);
+      setConflictSceneIds([
+        ...new Set([
+          ...result.conflicts.map(c => c.sceneId),
+          ...conflicts.map(c => c.sceneId)
+        ])
+      ]);
+      return result;
+    } catch (err) {
+      // Background sync triggers fail silently -- a transient offline blip
+      // shouldn't interrupt writing.
+      console.error('Sync failed:', err);
+      return null;
+    }
+  }, [setBook]);
+
+  useSyncTriggers(performSync, { enabled: !!book });
+
+  const handleLogin = async token => {
     setIsLoading(true);
     setError(null);
     try {
@@ -50,10 +86,10 @@ function App() {
     gitHubService.clearAuth();
     setIsAuthenticated(false);
     setRepositories([]);
-    setCurrentBook(null);
+    setBook(null);
     setCurrentScene(null);
     setCurrentChapter(null);
-    setCurrentRepo(null);
+    setConflictSceneIds([]);
   };
 
   const loadRepositories = async () => {
@@ -69,360 +105,172 @@ function App() {
     }
   };
 
-  const loadBook = async (repo) => {
-    setIsLoading(true);
+  const selectRepo = async repo => {
     setError(null);
-    try {
-      const bookData = await gitHubService.downloadBookFromRepository(
-        repo.fullName,
-        repo.bookFileName
-      );
+    setCurrentScene(null);
+    setCurrentChapter(null);
+    setConflictSceneIds([]);
 
-      // Fetch the current commit SHA and add it to the book for proper sync tracking
-      const currentSha = await gitHubService.getLatestCommitSha(
-        { full_name: repo.fullName },
-        repo.bookFileName
-      );
-
-      // Add the SHA to the book's github metadata
-      const bookWithSha = {
-        ...bookData,
-        github: {
-          ...bookData.github,
-          lastSyncCommitSha: currentSha
-        }
-      };
-
-      setCurrentBook(bookWithSha);
-      setCurrentRepo(repo);
-      setCurrentScene(null);
-      setCurrentChapter(null);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
+    const persisted = await loadPersistedBook(repo.fullName);
+    if (persisted) {
+      setBook(persisted);
+    } else {
+      // No local record yet -- a stub with no lastSyncCommitSha. The first
+      // sync trigger (useSyncTriggers fires immediately on enable) pulls the
+      // repo's real content wholesale instead of pushing this stub as a
+      // "merge" against it.
+      setBook({
+        title: '',
+        author: '',
+        chapters: [],
+        illustrations: [],
+        metadata: {},
+        github: { repository: repo }
+      });
     }
   };
 
   const selectScene = (scene, chapter) => {
     setCurrentScene(scene);
     setCurrentChapter(chapter);
-  };
-
-  const addChapter = async () => {
-    if (!currentBook) return;
-
-    setIsLoading(true);
-    setError(null);
-    try {
-      const newChapter = {
-        id: Date.now().toString(),
-        title: `Chapter ${currentBook.chapters.length + 1}`,
-        scenes: [],
-        assignedAuthor: null
-      };
-
-      const updatedBook = {
-        ...currentBook,
-        chapters: [...currentBook.chapters, newChapter],
-        metadata: {
-          ...currentBook.metadata,
-          modified: new Date().toISOString()
-        }
-      };
-
-      // Save to GitHub with conflict handling
-      const syncResult = await enhancedGitHub.safeSyncWithRepository(
-        currentRepo,
-        updatedBook,
-        `Mobile: Added ${newChapter.title}`
-      );
-
-      if (syncResult.success) {
-        const finalBook = syncResult.mergedContent || updatedBook;
-        setCurrentBook(finalBook);
-      } else if (syncResult.requiresResolution) {
-        setConflicts(syncResult.conflicts);
-        setPendingSaveData({
-          updatedBook,
-          commitMessage: `Mobile: Added ${newChapter.title}`,
-          filename: syncResult.filename
-        });
-        setIsLoading(false);
-        return;
-      } else {
-        throw new Error(syncResult.error || 'Failed to save to GitHub');
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const addScene = async (chapterId) => {
-    if (!currentBook) return;
-
-    setIsLoading(true);
-    setError(null);
-    try {
-      const chapter = currentBook.chapters.find(ch => ch.id === chapterId);
-      if (!chapter) {
-        throw new Error('Chapter not found');
-      }
-
-      const newScene = {
-        id: Date.now().toString(),
-        title: `Scene ${chapter.scenes.length + 1}`,
-        content: '',
-        notes: '',
-        created: new Date().toISOString(),
-        modified: new Date().toISOString(),
-        assignedAuthor: null
-      };
-
-      const updatedBook = {
-        ...currentBook,
-        chapters: currentBook.chapters.map(ch =>
-          ch.id === chapterId
-            ? { ...ch, scenes: [...ch.scenes, newScene] }
-            : ch
-        ),
-        metadata: {
-          ...currentBook.metadata,
-          modified: new Date().toISOString()
-        }
-      };
-
-      // Save to GitHub with conflict handling
-      const syncResult = await enhancedGitHub.safeSyncWithRepository(
-        currentRepo,
-        updatedBook,
-        `Mobile: Added ${newScene.title} to ${chapter.title}`
-      );
-
-      if (syncResult.success) {
-        const finalBook = syncResult.mergedContent || updatedBook;
-        setCurrentBook(finalBook);
-
-        // Navigate to the new scene
-        const savedChapter = finalBook.chapters.find(ch => ch.id === chapterId);
-        if (savedChapter) {
-          const savedScene = savedChapter.scenes.find(s => s.id === newScene.id);
-          if (savedScene) {
-            setCurrentScene(savedScene);
-            setCurrentChapter(savedChapter);
-          }
-        }
-      } else if (syncResult.requiresResolution) {
-        setConflicts(syncResult.conflicts);
-        setPendingSaveData({
-          updatedBook,
-          commitMessage: `Mobile: Added ${newScene.title} to ${chapter.title}`,
-          filename: syncResult.filename
-        });
-        setIsLoading(false);
-        return;
-      } else {
-        throw new Error(syncResult.error || 'Failed to save to GitHub');
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const saveScene = async (content) => {
-    if (!currentScene || !currentBook || !currentChapter) return;
-
-    setIsLoading(true);
-    setError(null);
-    try {
-      // Update scene content
-      const updatedScene = {
-        ...currentScene,
-        content,
-        modified: new Date().toISOString()
-      };
-
-      // Find and update scene in book
-      const updatedBook = { ...currentBook };
-      const chapterIndex = updatedBook.chapters.findIndex(
-        c => c.id === currentChapter.id
-      );
-
-      if (chapterIndex !== -1) {
-        const sceneIndex = updatedBook.chapters[chapterIndex].scenes.findIndex(
-          s => s.id === currentScene.id
-        );
-
-        if (sceneIndex !== -1) {
-          updatedBook.chapters[chapterIndex].scenes[sceneIndex] = updatedScene;
-        }
-      }
-
-      // Update metadata
-      updatedBook.metadata = {
-        ...updatedBook.metadata,
-        modified: new Date().toISOString()
-      };
-
-      // Use enhanced GitHub service for conflict-aware save
-      const syncResult = await enhancedGitHub.safeSyncWithRepository(
-        currentRepo,
-        updatedBook,
-        `Mobile edit: Updated scene "${currentScene.title}"`
-      );
-
-      if (syncResult.success) {
-        // Save successful - update local state with merged content
-        const finalBook = syncResult.mergedContent || updatedBook;
-        setCurrentBook(finalBook);
-
-        // Update current scene reference with the one from the saved book
-        const savedChapter = finalBook.chapters.find(c => c.id === currentChapter.id);
-        if (savedChapter) {
-          const savedScene = savedChapter.scenes.find(s => s.id === currentScene.id);
-          if (savedScene) {
-            setCurrentScene(savedScene);
-          }
-        }
-      } else if (syncResult.requiresResolution) {
-        // Conflicts detected - show resolution UI
-        setConflicts(syncResult.conflicts);
-        setPendingSaveData({
-          updatedBook,
-          updatedScene,
-          commitMessage: `Mobile edit: Updated scene "${currentScene.title}"`,
-          filename: syncResult.filename
-        });
-        setIsLoading(false);
-        return; // Don't throw error, let user resolve conflicts
-      } else {
-        // Save failed
-        throw new Error(syncResult.error || 'Failed to save to GitHub');
-      }
-    } catch (err) {
-      setError(err.message);
-      throw err;
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleConflictResolution = async (resolutions) => {
-    if (!pendingSaveData || !conflicts) return;
-
-    setIsLoading(true);
-    setError(null);
-    try {
-      const syncResult = await enhancedGitHub.resolveConflictsAndSync(
-        currentRepo,
-        resolutions,
-        pendingSaveData.updatedBook,
-        pendingSaveData.commitMessage,
-        pendingSaveData.filename
-      );
-
-      if (syncResult.success) {
-        // Save successful after conflict resolution
-        const finalBook = syncResult.mergedContent || pendingSaveData.updatedBook;
-        setCurrentBook(finalBook);
-
-        // Update current scene reference
-        const savedChapter = finalBook.chapters.find(c => c.id === currentChapter.id);
-        if (savedChapter) {
-          const savedScene = savedChapter.scenes.find(s => s.id === currentScene.id);
-          if (savedScene) {
-            setCurrentScene(savedScene);
-          }
-        }
-
-        // Clear conflict state
-        setConflicts(null);
-        setPendingSaveData(null);
-      } else {
-        throw new Error(syncResult.error || 'Failed to save after conflict resolution');
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleCancelConflictResolution = () => {
-    setConflicts(null);
-    setPendingSaveData(null);
-    setError('Save cancelled - conflicts need to be resolved');
+    performSync();
   };
 
   const goBackToOverview = () => {
     setCurrentScene(null);
     setCurrentChapter(null);
+    performSync();
   };
 
   const goBackToBooks = () => {
-    setCurrentBook(null);
+    setBook(null);
     setCurrentScene(null);
     setCurrentChapter(null);
-    setCurrentRepo(null);
+    setConflictSceneIds([]);
   };
 
-  // Render appropriate screen based on state
+  const persistAndSync = async updatedBook => {
+    setBook(updatedBook);
+    await savePersistedBook(updatedBook.github.repository.fullName, updatedBook);
+    performSync();
+  };
+
+  const addChapter = async () => {
+    if (!bookRef.current) return;
+    const newChapter = {
+      id: Date.now().toString(),
+      title: `Chapter ${bookRef.current.chapters.length + 1}`,
+      scenes: [],
+      assignedAuthor: null
+    };
+    await persistAndSync({
+      ...bookRef.current,
+      chapters: [...bookRef.current.chapters, newChapter],
+      metadata: { ...bookRef.current.metadata, modified: new Date().toISOString() }
+    });
+  };
+
+  const addScene = async chapterId => {
+    if (!bookRef.current) return;
+    const chapter = bookRef.current.chapters.find(ch => ch.id === chapterId);
+    if (!chapter) return;
+
+    const newScene = {
+      id: Date.now().toString(),
+      title: `Scene ${chapter.scenes.length + 1}`,
+      content: '',
+      notes: '',
+      created: new Date().toISOString(),
+      modified: new Date().toISOString(),
+      assignedAuthor: null
+    };
+    const updatedBook = {
+      ...bookRef.current,
+      chapters: bookRef.current.chapters.map(ch =>
+        ch.id === chapterId ? { ...ch, scenes: [...ch.scenes, newScene] } : ch
+      ),
+      metadata: { ...bookRef.current.metadata, modified: new Date().toISOString() }
+    };
+    await persistAndSync(updatedBook);
+    setCurrentScene(newScene);
+    setCurrentChapter(updatedBook.chapters.find(ch => ch.id === chapterId));
+  };
+
+  const saveScene = async content => {
+    if (!currentScene || !bookRef.current || !currentChapter) return;
+    const updatedScene = { ...currentScene, content, modified: new Date().toISOString() };
+    const updatedBook = {
+      ...bookRef.current,
+      chapters: bookRef.current.chapters.map(ch =>
+        ch.id === currentChapter.id
+          ? { ...ch, scenes: ch.scenes.map(s => (s.id === currentScene.id ? updatedScene : s)) }
+          : ch
+      ),
+      metadata: { ...bookRef.current.metadata, modified: new Date().toISOString() }
+    };
+    setCurrentScene(updatedScene);
+    await persistAndSync(updatedBook);
+  };
+
   if (!isAuthenticated) {
     return <LoginScreen onLogin={handleLogin} isLoading={isLoading} error={error} />;
   }
 
-  // Show conflict resolution overlay if there are conflicts
-  if (conflicts && conflicts.length > 0) {
-    return (
-      <ConflictResolution
-        conflicts={conflicts}
-        onResolve={handleConflictResolution}
-        onCancel={handleCancelConflictResolution}
-      />
-    );
-  }
-
-  if (currentScene && currentBook) {
+  if (currentScene && book) {
     return (
       <SceneEditor
         scene={currentScene}
         chapter={currentChapter}
-        book={currentBook}
+        book={book}
         onSave={saveScene}
         onBack={goBackToOverview}
         isLoading={isLoading}
         error={error}
+        hasConflict={conflictSceneIds.includes(currentScene.id)}
       />
     );
   }
 
-  if (currentBook) {
+  if (book) {
     return (
       <BookOverview
-        book={currentBook}
+        book={book}
         onSelectScene={selectScene}
         onAddChapter={addChapter}
         onAddScene={addScene}
         onBack={goBackToBooks}
         isLoading={isLoading}
         error={error}
+        conflictSceneIds={conflictSceneIds}
+        syncStatusText={formatSyncStatus(book)}
       />
     );
   }
 
   return (
-    <RepositoryList
+    <RepositoryListWithLoad
       repositories={repositories}
-      onSelectRepo={loadBook}
+      onSelectRepo={selectRepo}
       onLogout={handleLogout}
       isLoading={isLoading}
       error={error}
+      loadRepositories={loadRepositories}
     />
   );
+}
+
+// Loads repositories on first render of the repo-list screen (mirrors the
+// old top-level mount effect, scoped to this screen since App no longer has
+// a single "authenticated" useEffect -- isAuthenticated can flip true from
+// handleLogin, which already calls loadRepositories itself; this covers the
+// remaining case of a page reload with a token already in localStorage).
+function RepositoryListWithLoad({ loadRepositories, ...props }) {
+  const loaded = useRef(false);
+  if (!loaded.current) {
+    loaded.current = true;
+    loadRepositories();
+  }
+  return <RepositoryList {...props} />;
 }
 
 export default App;
