@@ -1,6 +1,16 @@
 import './BookOverview.css';
 
-function BookOverview({ book, onSelectScene, onAddChapter, onAddScene, onBack, isLoading, error }) {
+function BookOverview({
+  book,
+  onSelectScene,
+  onAddChapter,
+  onAddScene,
+  onBack,
+  isLoading,
+  error,
+  conflictSceneIds = [],
+  syncStatusText = null
+}) {
   return (
     <div className="book-overview">
       <header className="app-header">
@@ -15,6 +25,7 @@ function BookOverview({ book, onSelectScene, onAddChapter, onAddScene, onBack, i
 
         <div className="book-info">
           <p className="author">by {book.author}</p>
+          {syncStatusText && <p className="sync-status">{syncStatusText}</p>}
         </div>
 
         {isLoading ? (
@@ -37,7 +48,14 @@ function BookOverview({ book, onSelectScene, onAddChapter, onAddScene, onBack, i
                           onClick={() => onSelectScene(scene, chapter)}
                           className="scene-button"
                         >
-                          <span className="scene-title">{scene.title}</span>
+                          <span className="scene-title">
+                            {scene.title}
+                            {conflictSceneIds.includes(scene.id) && (
+                              <span className="conflict-badge" title="Has a merge conflict — open to resolve">
+                                {' '}⚠
+                              </span>
+                            )}
+                          </span>
                           <span className="scene-length">
                             {scene.content.split(/\s+/).filter(w => w.length > 0).length} words
                           </span>

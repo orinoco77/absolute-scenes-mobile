@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import './SceneEditor.css';
 
-function SceneEditor({ scene, chapter, book, onSave, onBack, isLoading, error }) {
+function SceneEditor({ scene, chapter, book, onSave, onBack, isLoading, error, hasConflict = false }) {
   const [content, setContent] = useState(scene.content);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -53,6 +53,11 @@ function SceneEditor({ scene, chapter, book, onSave, onBack, isLoading, error })
       <div className="editor-content">
         {error && <div className="error-message">{error}</div>}
         {saveSuccess && <div className="success-message">Saved successfully!</div>}
+        {hasConflict && (
+          <div className="conflict-notice">
+            This scene has a merge conflict — resolve the `&lt;&lt;&lt;&lt;&lt;&lt;&lt;` markers below and save.
+          </div>
+        )}
 
         <textarea
           value={content}
