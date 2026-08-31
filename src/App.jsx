@@ -43,7 +43,10 @@ function App() {
 
     try {
       const result = await syncBook({ book: snapshotBook, gitHubService });
-      if (!result) return null;
+      if (!result) {
+        setIsLoading(false);
+        return null;
+      }
 
       const { bookData, conflicts } = reconcilePostSyncState(
         snapshotBook,
@@ -51,6 +54,7 @@ function App() {
         result.bookData
       );
       setBook(bookData);
+      setIsLoading(false);
       await savePersistedBook(bookData.github.repository.fullName, bookData);
 
       // Re-point the open scene/chapter (if any) at their post-sync
@@ -82,6 +86,7 @@ function App() {
       // Background sync triggers fail silently -- a transient offline blip
       // shouldn't interrupt writing.
       console.error('Sync failed:', err);
+      setIsLoading(false);
       return null;
     }
   }, [setBook]);
@@ -99,10 +104,15 @@ function App() {
     if (persisted) {
       setBook(persisted);
     } else {
-      // No local record yet -- a stub with no lastSyncCommitSha. The first
-      // sync trigger (useSyncTriggers fires immediately on enable) pulls the
-      // repo's real content wholesale instead of pushing this stub as a
-      // "merge" against it.
+      // No local record yet -- a stub with no lastSyncCommitSha and zero
+      // chapters. Flag this as loading (cleared once performSync's first
+      // pull resolves, succeeds or fails) so BookOverview shows a loading
+      // state instead of "this book has no chapters yet" -- an empty stub
+      // reads as data loss, not as "still fetching your real book." The
+      // first sync trigger (useSyncTriggers fires immediately on enable)
+      // pulls the repo's real content wholesale instead of pushing this
+      // stub as a "merge" against it.
+      setIsLoading(true);
       setBook({
         title: '',
         author: '',
