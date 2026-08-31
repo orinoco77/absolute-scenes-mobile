@@ -87,6 +87,27 @@ test('concurrent syncBook calls share one in-flight syncRepo call', async () => 
   expect(gitSync.syncRepo).toHaveBeenCalledTimes(1);
 });
 
+test('syncing two different repos concurrently does not coalesce them', async () => {
+  const bookA = makeBook();
+  const bookB = makeBook({ repository: { fullName: 'owner/other-repo', defaultBranch: 'main' } });
+
+  let resolveA, resolveB;
+  gitSync.syncRepo
+    .mockImplementationOnce(() => new Promise(resolve => { resolveA = resolve; }))
+    .mockImplementationOnce(() => new Promise(resolve => { resolveB = resolve; }));
+
+  const callA = syncBook({ book: bookA, gitHubService: makeGitHubService() });
+  const callB = syncBook({ book: bookB, gitHubService: makeGitHubService() });
+
+  resolveB({ commitSha: 'b-sha', bookData: { title: 'B', github: {} }, conflicts: [] });
+  resolveA({ commitSha: 'a-sha', bookData: { title: 'A', github: {} }, conflicts: [] });
+  const [resultA, resultB] = await Promise.all([callA, callB]);
+
+  expect(gitSync.syncRepo).toHaveBeenCalledTimes(2);
+  expect(resultA.bookData.title).toBe('A');
+  expect(resultB.bookData.title).toBe('B');
+});
+
 test('skips entirely when not authenticated', async () => {
   const gitHubService = { isAuthenticated: () => false, getUserInfo: () => null };
   const result = await syncBook({ book: makeBook(), gitHubService });

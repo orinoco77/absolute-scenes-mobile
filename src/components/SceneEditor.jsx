@@ -1,20 +1,38 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import './SceneEditor.css';
 
 function SceneEditor({ scene, chapter, book, onSave, onBack, isLoading, error, hasConflict = false }) {
   const [content, setContent] = useState(scene.content);
+  const lastSyncedExternalContent = useRef(scene.content);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
   useEffect(() => {
     setContent(scene.content);
+    lastSyncedExternalContent.current = scene.content;
   }, [scene.id]);
+
+  useEffect(() => {
+    // The scene prop can be replaced with an updated version of the SAME
+    // scene (same id, different content) after a background sync merges in
+    // a remote edit while this scene is already open. Only adopt the new
+    // content if the textarea still shows exactly what was last loaded --
+    // otherwise the user has an unsaved edit in progress, and silently
+    // overwriting it here would be its own data-loss bug.
+    if (scene.content === lastSyncedExternalContent.current) return;
+    setContent(currentContent => {
+      if (currentContent !== lastSyncedExternalContent.current) return currentContent;
+      lastSyncedExternalContent.current = scene.content;
+      return scene.content;
+    });
+  }, [scene.content]);
 
   const handleSave = async () => {
     setIsSaving(true);
     setSaveSuccess(false);
     try {
       await onSave(content);
+      lastSyncedExternalContent.current = content;
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err) {
@@ -55,7 +73,7 @@ function SceneEditor({ scene, chapter, book, onSave, onBack, isLoading, error, h
         {saveSuccess && <div className="success-message">Saved successfully!</div>}
         {hasConflict && (
           <div className="conflict-notice">
-            This scene has a merge conflict — resolve the `&lt;&lt;&lt;&lt;&lt;&lt;&lt;` markers below and save.
+            This scene has a merge conflict — resolve the &lt;&lt;&lt;&lt;&lt;&lt;&lt; markers below and save.
           </div>
         )}
 
