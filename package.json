@@ -11,7 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@absolute-scenes/git-sync": "github:orinoco77/absolute-scenes-git-sync#v0.2.1",
+    "@absolute-scenes/git-sync": "github:orinoco77/absolute-scenes-git-sync#v0.2.3",
     "html5-qrcode": "^2.3.8",
     "idb": "^8.0.0",
     "react": "^18.2.0",
