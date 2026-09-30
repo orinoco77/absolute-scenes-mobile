@@ -162,3 +162,106 @@ test('opening a scene that has since changed remotely shows the freshly synced c
 
   expect(await screen.findByDisplayValue('synced while opening')).toBeInTheDocument();
 });
+
+test('adding a chapter creates a real chapter and persists it', async () => {
+  gitHubService.storeAuth('ghp_abc123', { login: 'alice' });
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => [{ full_name: 'alice/novel', name: 'novel', description: null, default_branch: 'main' }]
+  });
+  syncBook.mockResolvedValueOnce({ bookData: pulledBook(), conflicts: [] });
+
+  render(<App />);
+  await userEvent.click(await screen.findByText('novel'));
+  await waitFor(() => expect(screen.getByText('Existing Repo Book')).toBeInTheDocument());
+
+  const bookWithNewChapter = {
+    ...pulledBook(),
+    chapters: [...pulledBook().chapters, { id: 'ch2', title: 'Chapter 2', scenes: [], assignedAuthor: null }]
+  };
+  syncBook.mockResolvedValueOnce({ bookData: bookWithNewChapter, conflicts: [] });
+
+  await userEvent.click(screen.getByText('+ Add Chapter'));
+
+  await waitFor(() => expect(screen.getByText('Chapter 2: Chapter 2')).toBeInTheDocument());
+  expect(savePersistedBook).toHaveBeenCalledWith(
+    'alice/novel',
+    expect.objectContaining({
+      chapters: expect.arrayContaining([
+        expect.objectContaining({ title: 'Chapter 2' })
+      ])
+    })
+  );
+});
+
+test('adding a scene creates a real scene and navigates into it', async () => {
+  gitHubService.storeAuth('ghp_abc123', { login: 'alice' });
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => [{ full_name: 'alice/novel', name: 'novel', description: null, default_branch: 'main' }]
+  });
+  syncBook.mockResolvedValueOnce({ bookData: pulledBook(), conflicts: [] });
+
+  render(<App />);
+  await userEvent.click(await screen.findByText('novel'));
+  await waitFor(() => expect(screen.getByText('Existing Repo Book')).toBeInTheDocument());
+
+  const bookWithNewScene = {
+    ...pulledBook(),
+    chapters: pulledBook().chapters.map(ch => ch.id === 'ch1' ? { ...ch, scenes: [...ch.scenes, { id: 'sc2', title: 'Scene 2', content: '', notes: '', created: new Date().toISOString(), modified: new Date().toISOString(), assignedAuthor: null }] } : ch)
+  };
+  syncBook.mockResolvedValueOnce({ bookData: bookWithNewScene, conflicts: [] });
+
+  await userEvent.click(screen.getByText('+ Add Scene'));
+
+  await waitFor(() => expect(screen.getByPlaceholderText(/start writing/i)).toBeInTheDocument());
+  expect(savePersistedBook).toHaveBeenCalledWith(
+    'alice/novel',
+    expect.objectContaining({
+      chapters: expect.arrayContaining([
+        expect.objectContaining({
+          scenes: expect.arrayContaining([
+            expect.objectContaining({ title: 'Scene 2' })
+          ])
+        })
+      ])
+    })
+  );
+});
+
+test('saving a scene that was deleted remotely shows an error, not a false success', async () => {
+  gitHubService.storeAuth('ghp_abc123', { login: 'alice' });
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => [{ full_name: 'alice/novel', name: 'novel', description: null, default_branch: 'main' }]
+  });
+  // First sync (on repo select): pulls the book with its one scene.
+  syncBook.mockResolvedValueOnce({ bookData: pulledBook(), conflicts: [] });
+
+  render(<App />);
+  await userEvent.click(await screen.findByText('novel'));
+  await waitFor(() => expect(screen.getByText('Existing Repo Book')).toBeInTheDocument());
+
+  // Second sync (fired by selectScene when opening the scene): simulates
+  // the scene having been deleted on another device in the meantime.
+  const bookWithSceneRemoved = {
+    ...pulledBook(),
+    chapters: [{ id: 'ch1', title: 'Chapter 1', scenes: [] }]
+  };
+  syncBook.mockResolvedValueOnce({ bookData: bookWithSceneRemoved, conflicts: [] });
+
+  await userEvent.click(screen.getByText('Scene One'));
+  // currentScene stays pointed at the now-stale 'Scene One' object (the
+  // app's existing reconciliation falls back to it when no match is found
+  // post-sync) while bookRef.current no longer has that scene.
+  await screen.findByPlaceholderText(/start writing/i);
+
+  await userEvent.click(screen.getByText('Save'));
+
+  await waitFor(() =>
+    expect(
+      screen.getByText('This scene was deleted elsewhere — go back and check the book.')
+    ).toBeInTheDocument()
+  );
+  expect(screen.queryByText('Saved successfully!')).not.toBeInTheDocument();
+});
