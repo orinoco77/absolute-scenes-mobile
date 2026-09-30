@@ -175,11 +175,7 @@ test('adding a chapter creates a real chapter and persists it', async () => {
   await userEvent.click(await screen.findByText('novel'));
   await waitFor(() => expect(screen.getByText('Existing Repo Book')).toBeInTheDocument());
 
-  const bookWithNewChapter = {
-    ...pulledBook(),
-    chapters: [...pulledBook().chapters, { id: 'ch2', title: 'Chapter 2', scenes: [], assignedAuthor: null }]
-  };
-  syncBook.mockResolvedValueOnce({ bookData: bookWithNewChapter, conflicts: [] });
+  syncBook.mockResolvedValueOnce(null);
 
   await userEvent.click(screen.getByText('+ Add Chapter'));
 
@@ -206,11 +202,7 @@ test('adding a scene creates a real scene and navigates into it', async () => {
   await userEvent.click(await screen.findByText('novel'));
   await waitFor(() => expect(screen.getByText('Existing Repo Book')).toBeInTheDocument());
 
-  const bookWithNewScene = {
-    ...pulledBook(),
-    chapters: pulledBook().chapters.map(ch => ch.id === 'ch1' ? { ...ch, scenes: [...ch.scenes, { id: 'sc2', title: 'Scene 2', content: '', notes: '', created: new Date().toISOString(), modified: new Date().toISOString(), assignedAuthor: null }] } : ch)
-  };
-  syncBook.mockResolvedValueOnce({ bookData: bookWithNewScene, conflicts: [] });
+  syncBook.mockResolvedValueOnce(null);
 
   await userEvent.click(screen.getByText('+ Add Scene'));
 
@@ -264,4 +256,92 @@ test('saving a scene that was deleted remotely shows an error, not a false succe
     ).toBeInTheDocument()
   );
   expect(screen.queryByText('Saved successfully!')).not.toBeInTheDocument();
+});
+
+test('the deleted-scene error clears after going back to the book overview', async () => {
+  gitHubService.storeAuth('ghp_abc123', { login: 'alice' });
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => [{ full_name: 'alice/novel', name: 'novel', description: null, default_branch: 'main' }]
+  });
+  syncBook.mockResolvedValueOnce({ bookData: pulledBook(), conflicts: [] });
+
+  render(<App />);
+  await userEvent.click(await screen.findByText('novel'));
+  await waitFor(() => expect(screen.getByText('Existing Repo Book')).toBeInTheDocument());
+
+  const bookWithSceneRemoved = {
+    ...pulledBook(),
+    chapters: [{ id: 'ch1', title: 'Chapter 1', scenes: [] }]
+  };
+  syncBook.mockResolvedValueOnce({ bookData: bookWithSceneRemoved, conflicts: [] });
+  await userEvent.click(screen.getByText('Scene One'));
+  await screen.findByPlaceholderText(/start writing/i);
+
+  await userEvent.click(screen.getByText('Save'));
+  await waitFor(() =>
+    expect(
+      screen.getByText('This scene was deleted elsewhere — go back and check the book.')
+    ).toBeInTheDocument()
+  );
+
+  // saveScene's error path throws before calling persistAndSync, so no
+  // syncBook call happens on Save here -- the next queued mock is for
+  // goBackToOverview's own performSync() below.
+  syncBook.mockResolvedValueOnce(null);
+  await userEvent.click(screen.getByText('← Back'));
+
+  expect(
+    screen.queryByText('This scene was deleted elsewhere — go back and check the book.')
+  ).not.toBeInTheDocument();
+});
+
+test('saving a scene that was moved to another chapter elsewhere finds and updates it there', async () => {
+  gitHubService.storeAuth('ghp_abc123', { login: 'alice' });
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: true,
+    json: async () => [{ full_name: 'alice/novel', name: 'novel', description: null, default_branch: 'main' }]
+  });
+  syncBook.mockResolvedValueOnce({ bookData: pulledBook(), conflicts: [] });
+
+  render(<App />);
+  await userEvent.click(await screen.findByText('novel'));
+  await waitFor(() => expect(screen.getByText('Existing Repo Book')).toBeInTheDocument());
+
+  // Second sync (fired by selectScene when opening the scene): simulates
+  // the scene having been moved to a different chapter on another device.
+  const bookWithSceneMoved = {
+    ...pulledBook(),
+    chapters: [
+      { id: 'ch1', title: 'Chapter 1', scenes: [] },
+      { id: 'ch2', title: 'Chapter 2', scenes: [{ id: 'sc1', title: 'Scene One', content: 'hi' }] }
+    ]
+  };
+  syncBook.mockResolvedValueOnce({ bookData: bookWithSceneMoved, conflicts: [] });
+
+  await userEvent.click(screen.getByText('Scene One'));
+  await screen.findByPlaceholderText(/start writing/i);
+
+  syncBook.mockResolvedValueOnce(null);
+  const textarea = screen.getByPlaceholderText(/start writing/i);
+  await userEvent.clear(textarea);
+  await userEvent.type(textarea, 'edited after move');
+  await userEvent.click(screen.getByText('Save'));
+
+  await waitFor(() =>
+    expect(savePersistedBook).toHaveBeenCalledWith(
+      'alice/novel',
+      expect.objectContaining({
+        chapters: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'ch2',
+            scenes: expect.arrayContaining([
+              expect.objectContaining({ content: 'edited after move' })
+            ])
+          })
+        ])
+      })
+    )
+  );
+  expect(screen.queryByText(/deleted elsewhere/i)).not.toBeInTheDocument();
 });

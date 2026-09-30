@@ -183,12 +183,14 @@ function App() {
   };
 
   const selectScene = (scene, chapter) => {
+    setError(null);
     setCurrentScene(scene);
     setCurrentChapter(chapter);
     performSync();
   };
 
   const goBackToOverview = () => {
+    setError(null);
     setCurrentScene(null);
     setCurrentChapter(null);
     performSync();
@@ -230,14 +232,29 @@ function App() {
     try {
       newBook = bookModel.updateScene(bookRef.current, currentScene.id, { content });
     } catch (err) {
-      if (/not found/.test(err.message)) {
+      if (err.message.startsWith('Scene not found')) {
         setError('This scene was deleted elsewhere — go back and check the book.');
       }
+      // Re-throw (don't swallow): SceneEditor's own handleSave catches this
+      // and correctly skips showing a false "Saved successfully!" message.
       throw err;
     }
-    const chapter = newBook.chapters.find(ch => ch.id === currentChapter.id);
-    const updatedScene = chapter.scenes.find(s => s.id === currentScene.id);
+    // updateScene above already threw if the scene didn't exist anywhere in
+    // newBook, so it's guaranteed to be found here -- but not necessarily in
+    // currentChapter, if it was moved to a different chapter by a concurrent
+    // edit elsewhere while this scene was open (the same kind of staleness
+    // performSync's own reconciliation already accounts for).
+    let updatedScene, updatedChapter;
+    for (const chapter of newBook.chapters) {
+      const found = chapter.scenes.find(s => s.id === currentScene.id);
+      if (found) {
+        updatedScene = found;
+        updatedChapter = chapter;
+        break;
+      }
+    }
     setCurrentScene(updatedScene);
+    setCurrentChapter(updatedChapter);
     await persistAndSync(newBook);
   };
 
