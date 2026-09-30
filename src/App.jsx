@@ -5,6 +5,7 @@ import RepositoryList from './components/RepositoryList';
 import BookOverview from './components/BookOverview';
 import SceneEditor from './components/SceneEditor';
 import gitHubService from './utils/gitHubService';
+import * as bookModel from '@absolute-scenes/book-model';
 import { syncBook, reconcilePostSyncState } from './sync/syncOrchestrator.js';
 import { loadPersistedBook, savePersistedBook } from './sync/bookStorage.js';
 import { useSyncTriggers } from './sync/useSyncTriggers.js';
@@ -209,59 +210,35 @@ function App() {
 
   const addChapter = async () => {
     if (!bookRef.current) return;
-    const newChapter = {
-      id: Date.now().toString(),
-      title: `Chapter ${bookRef.current.chapters.length + 1}`,
-      scenes: [],
-      assignedAuthor: null
-    };
-    await persistAndSync({
-      ...bookRef.current,
-      chapters: [...bookRef.current.chapters, newChapter],
-      metadata: { ...bookRef.current.metadata, modified: new Date().toISOString() }
-    });
+    const newBook = bookModel.addChapter(bookRef.current);
+    await persistAndSync(newBook);
   };
 
   const addScene = async chapterId => {
     if (!bookRef.current) return;
-    const chapter = bookRef.current.chapters.find(ch => ch.id === chapterId);
-    if (!chapter) return;
-
-    const newScene = {
-      id: Date.now().toString(),
-      title: `Scene ${chapter.scenes.length + 1}`,
-      content: '',
-      notes: '',
-      created: new Date().toISOString(),
-      modified: new Date().toISOString(),
-      assignedAuthor: null
-    };
-    const updatedBook = {
-      ...bookRef.current,
-      chapters: bookRef.current.chapters.map(ch =>
-        ch.id === chapterId ? { ...ch, scenes: [...ch.scenes, newScene] } : ch
-      ),
-      metadata: { ...bookRef.current.metadata, modified: new Date().toISOString() }
-    };
-    await persistAndSync(updatedBook);
+    const newBook = bookModel.addScene(bookRef.current, chapterId);
+    const chapter = newBook.chapters.find(ch => ch.id === chapterId);
+    const newScene = chapter.scenes[chapter.scenes.length - 1];
+    await persistAndSync(newBook);
     setCurrentScene(newScene);
-    setCurrentChapter(updatedBook.chapters.find(ch => ch.id === chapterId));
+    setCurrentChapter(chapter);
   };
 
   const saveScene = async content => {
     if (!currentScene || !bookRef.current || !currentChapter) return;
-    const updatedScene = { ...currentScene, content, modified: new Date().toISOString() };
-    const updatedBook = {
-      ...bookRef.current,
-      chapters: bookRef.current.chapters.map(ch =>
-        ch.id === currentChapter.id
-          ? { ...ch, scenes: ch.scenes.map(s => (s.id === currentScene.id ? updatedScene : s)) }
-          : ch
-      ),
-      metadata: { ...bookRef.current.metadata, modified: new Date().toISOString() }
-    };
+    let newBook;
+    try {
+      newBook = bookModel.updateScene(bookRef.current, currentScene.id, { content });
+    } catch (err) {
+      if (/not found/.test(err.message)) {
+        setError('This scene was deleted elsewhere — go back and check the book.');
+      }
+      throw err;
+    }
+    const chapter = newBook.chapters.find(ch => ch.id === currentChapter.id);
+    const updatedScene = chapter.scenes.find(s => s.id === currentScene.id);
     setCurrentScene(updatedScene);
-    await persistAndSync(updatedBook);
+    await persistAndSync(newBook);
   };
 
   if (!isAuthenticated) {
