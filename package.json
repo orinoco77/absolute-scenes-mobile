@@ -11,7 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@absolute-scenes/book-model": "github:orinoco77/absolute-scenes-book-model#main",
+    "@absolute-scenes/book-model": "github:orinoco77/absolute-scenes-book-model#v0.1.0",
     "@absolute-scenes/git-sync": "github:orinoco77/absolute-scenes-git-sync#v0.2.4",
     "html5-qrcode": "^2.3.8",
     "idb": "^8.0.0",
