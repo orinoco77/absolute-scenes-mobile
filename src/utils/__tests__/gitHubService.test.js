@@ -11,6 +11,8 @@ beforeEach(() => {
   localStorage.clear();
   gitHubService.clearAuth();
   vi.restoreAllMocks();
+  // vitest 4: restoreAllMocks no longer resets vi.fn() call state
+  detectRepoLayout.mockReset();
 });
 
 test('is not authenticated with no stored token', () => {
